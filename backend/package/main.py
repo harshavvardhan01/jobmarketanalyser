@@ -117,7 +117,9 @@ def save_to_cache(cache_key: str, response_data: dict):
             "avg_salary": response_data["avg_salary"],
             "top_skills": response_data["top_skills"],
             "demand_score": response_data["demand_score"],
-            "summary": response_data["summary"]
+            "summary": response_data["summary"],
+            "data_source": response_data.get("data_source", "live"),
+            "classmate_cost_analysis": response_data.get("classmate_cost_analysis")
         }
 
         print(f"DEBUG: Saving cache for key={cache_key}")
@@ -249,6 +251,39 @@ def calculate_demand_score(count):
         return 60
     return 30
 
+def is_cloud_related_role(job_title: str) -> bool:
+    lower_title = job_title.lower()
+
+    return (
+        "cloud" in lower_title
+        or "devops" in lower_title
+        or "aws" in lower_title
+        or "platform" in lower_title
+        or "infrastructure" in lower_title
+        or "sre" in lower_title
+    )
+
+def build_sample_cloud_cost_data():
+    return [
+        {"date": "2025-03-01", "service": "EC2", "cost_usd": 25},
+        {"date": "2025-03-02", "service": "EC2", "cost_usd": 28},
+        {"date": "2025-03-03", "service": "EC2", "cost_usd": 90},
+    ]
+
+def fetch_classmate_cost_analysis():
+    url = "http://cloudcost.us-east-1.elasticbeanstalk.com/api/analyse-cost-json"
+    payload = build_sample_cloud_cost_data()
+
+    response = requests.post(url, json=payload, timeout=20)
+
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Classmate API failed with status {response.status_code}: {response.text[:300]}"
+        )
+
+    return response.json()
+    
 
 @app.get("/")
 def root():
@@ -264,7 +299,7 @@ def health():
 def analyse_job(payload: JobRequest):
     cache_key = build_cache_key(payload.job_title, payload.location, payload.country)
     print(f"DEBUG: cache_key={cache_key}")
-
+    
     cached_result = get_cached_result(cache_key)
 
     if cached_result:
@@ -284,9 +319,18 @@ def analyse_job(payload: JobRequest):
         "top_skills": extract_top_skills(results, payload.job_title),
         "demand_score": calculate_demand_score(len(results)),
         "summary": f"{len(results)} jobs found",
-        "data_source": "live"
+        "data_source": "live",
+        "classmate_cost_analysis": None
     }
-
+    if is_cloud_related_role(payload.job_title):
+        try:
+            print("DEBUG: Calling classmate cost anomaly API")
+            classmate_data = fetch_classmate_cost_analysis()
+            response_data["classmate_cost_analysis"] = classmate_data
+        except Exception as e:
+            print(f"DEBUG: Classmate API integration failed: {str(e)}")
+            response_data["classmate_cost_analysis"] = None
+    
     save_to_cache(cache_key, response_data)
     return response_data
     

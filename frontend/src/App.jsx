@@ -22,6 +22,7 @@ function App() {
   const [error, setError] = useState("");
   const [queueStatus, setQueueStatus] = useState(null);
   const [lastQueuedRequest, setLastQueuedRequest] = useState(null);
+  const [friendApiResult, setFriendApiResult] = useState(null);
 
   const fetchCountryInfo = async (countryName) => {
     const response = await fetch(
@@ -89,6 +90,50 @@ Summary: ${jobData.summary}
     );
   };
 
+
+  const isCloudRelatedRole = (title) => {
+    const lowerTitle = title.toLowerCase();
+  
+    return (
+      lowerTitle.includes("cloud") ||
+      lowerTitle.includes("devops") ||
+      lowerTitle.includes("aws") ||
+      lowerTitle.includes("platform") ||
+      lowerTitle.includes("infrastructure") ||
+      lowerTitle.includes("sre")
+    );
+  };
+  const buildSampleCloudCostData = () => {
+    return [
+      { date: "2025-03-01", service: "EC2", cost_usd: 25 },
+      { date: "2025-03-02", service: "EC2", cost_usd: 28 },
+      { date: "2025-03-03", service: "EC2", cost_usd: 90 },
+    ];
+  };
+  
+  const fetchFriendCostAnalysis = async () => {
+    const payload = buildSampleCloudCostData();
+  
+    const response = await fetch(
+      "http://cloudcost.us-east-1.elasticbeanstalk.com/api/analyse-cost-json",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      }
+    );
+  
+    const data = await response.json();
+  
+    if (!response.ok) {
+      throw new Error(data.detail || "Friend API request failed");
+    }
+  
+    return data;
+  };
+
   const handleAnalyse = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -98,6 +143,7 @@ Summary: ${jobData.summary}
     setAiSummary("");
     setQueueStatus(null);
     setLastQueuedRequest(null);
+    setFriendApiResult(null);
 
     try {
       const [jobResponse, fetchedCountryInfo] = await Promise.all([
@@ -127,6 +173,15 @@ Summary: ${jobData.summary}
       setResult(jobData);
       setCountryInfo(fetchedCountryInfo);
       setAiSummary(summary);
+      /*if (isCloudRelatedRole(jobTitle)) {
+        try {
+          const friendData = await fetchFriendCostAnalysis();
+          console.log("Friend API result:", friendData);
+          setFriendApiResult(friendData);
+        } catch (friendError) {
+          console.error("Friend API integration failed:", friendError);
+        }
+      }*/
       fetch(`${API_BASE_URL}/submit-job-request`, {
         method: "POST",
         headers: {
@@ -176,11 +231,15 @@ Summary: ${jobData.summary}
   };
 
   const demandPercent = result ? Math.min(result.demand_score, 100) : 0;
+  const classmateCostAnalysis = result?.classmate_cost_analysis || null;
+  const topAnomaly = classmateCostAnalysis?.anomalies?.[0] || null;
+  const severityBreakdown = classmateCostAnalysis?.summary?.severity_breakdown || null;
     const getDemandLabel = (score) => {
       if (score >= 75) return "High";
       if (score >= 45) return "Medium";
       return "Low";
     };
+  
   return (
     <div className="page">
       <header className="topbar">
@@ -430,6 +489,85 @@ Summary: ${jobData.summary}
                     <p>Generated summary based on market response and skills</p>
                   </div>
                   <p className="insight-text">{aiSummary}</p>
+                </div>
+              )}
+              
+              {classmateCostAnalysis && (
+                <div className="card cost-intelligence-card fade-up">
+                  <div className="card-header">
+                    <h3>Cloud Cost Intelligence</h3>
+                    <p>Classmate API integration for anomaly detection in cloud billing patterns</p>
+                  </div>
+              
+                  <div className="cost-intelligence-grid">
+                    <div className="cost-metric">
+                      <span>Total Anomalies</span>
+                      <strong>{classmateCostAnalysis.summary.total_anomalies}</strong>
+                    </div>
+              
+                    <div className="cost-metric">
+                      <span>Highest Spike</span>
+                      <strong>{classmateCostAnalysis.summary.highest_spike_percentage}%</strong>
+                    </div>
+              
+                    <div className="cost-metric">
+                      <span>Flagged Cost (USD)</span>
+                      <strong>${classmateCostAnalysis.summary.total_flagged_cost_usd}</strong>
+                    </div>
+              
+                    <div className="cost-metric">
+                      <span>Flagged Cost (EUR)</span>
+                      <strong>€{classmateCostAnalysis.summary.total_flagged_cost_eur}</strong>
+                    </div>
+                  </div>
+              
+                  {severityBreakdown && (
+                    <div className="severity-block">
+                      <h4>Severity Breakdown</h4>
+                      <div className="severity-pills">
+                        <span className="severity-pill high">
+                          High: {severityBreakdown.high}
+                        </span>
+                        <span className="severity-pill medium">
+                          Medium: {severityBreakdown.medium}
+                        </span>
+                        <span className="severity-pill low">
+                          Low: {severityBreakdown.low}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+              
+                  {topAnomaly && (
+                    <div className="top-anomaly-block">
+                      <h4>Top Detected Anomaly</h4>
+                      <div className="top-anomaly-grid">
+                        <div>
+                          <span>Service</span>
+                          <strong>{topAnomaly.service}</strong>
+                        </div>
+                        <div>
+                          <span>Date</span>
+                          <strong>{topAnomaly.date}</strong>
+                        </div>
+                        <div>
+                          <span>Risk Label</span>
+                          <strong>{topAnomaly.risk_label}</strong>
+                        </div>
+                        <div>
+                          <span>Severity</span>
+                          <strong>{topAnomaly.severity}</strong>
+                        </div>
+                      </div>
+              
+                      <p className="anomaly-explanation">{topAnomaly.explanation}</p>
+              
+                      <div className="anomaly-ai-summary">
+                        <span>AI Summary</span>
+                        <p>{topAnomaly.ai_summary}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
